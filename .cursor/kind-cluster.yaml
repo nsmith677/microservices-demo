@@ -1,0 +1,7 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  # This VM's kernel does not ship the xt_statistic netfilter module, so the
+  # legacy iptables kube-proxy cannot program its service load-balancing rules.
+  # The native nftables proxier does not depend on that module and works here.
+  kubeProxyMode: "nftables"

@@ -1,0 +1,15 @@
+{
+  "name": "Online Boutique (microservices-demo)",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "frontend",
+      "command": "bash .cursor/port-forward.sh"
+    },
+    {
+      "name": "pods",
+      "command": "kubectl get pods --watch"
+    }
+  ]
+}
