@@ -112,6 +112,7 @@ service ShippingService {
 message GetQuoteRequest {
     Address address = 1;
     repeated CartItem items = 2;
+    Money usd_item_subtotal = 3;
 }
 
 message GetQuoteResponse {
