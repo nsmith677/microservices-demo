@@ -268,26 +268,23 @@ func (fe *frontendServer) viewCartHandler(w http.ResponseWriter, r *http.Request
 		log.WithField("error", err).Warn("failed to get product recommendations")
 	}
 
-	shippingCost, err := fe.getShippingQuote(r.Context(), cart, currentCurrency(r))
-	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to get shipping quote"), http.StatusInternalServerError)
-		return
-	}
-
 	type cartItemView struct {
 		Item     *pb.Product
 		Quantity int32
 		Price    *pb.Money
 	}
 	items := make([]cartItemView, len(cart))
-	totalPrice := pb.Money{CurrencyCode: currentCurrency(r)}
+	pricesUSD := make(map[string]*pb.Money, len(cart))
+	currency := currentCurrency(r)
+	totalPrice := pb.Money{CurrencyCode: currency}
 	for i, item := range cart {
 		p, err := fe.getProduct(r.Context(), item.GetProductId())
 		if err != nil {
 			renderHTTPError(log, r, w, errors.Wrapf(err, "could not retrieve product #%s", item.GetProductId()), http.StatusInternalServerError)
 			return
 		}
-		price, err := fe.convertCurrency(r.Context(), p.GetPriceUsd(), currentCurrency(r))
+		pricesUSD[item.GetProductId()] = p.GetPriceUsd()
+		price, err := fe.convertCurrency(r.Context(), p.GetPriceUsd(), currency)
 		if err != nil {
 			renderHTTPError(log, r, w, errors.Wrapf(err, "could not convert currency for product #%s", item.GetProductId()), http.StatusInternalServerError)
 			return
@@ -299,6 +296,12 @@ func (fe *frontendServer) viewCartHandler(w http.ResponseWriter, r *http.Request
 			Quantity: item.GetQuantity(),
 			Price:    &multPrice}
 		totalPrice = money.Must(money.Sum(totalPrice, multPrice))
+	}
+	usdSubtotal := sumUSDItemSubtotal(cart, pricesUSD)
+	shippingCost, err := fe.getShippingQuote(r.Context(), cart, usdSubtotal, currency)
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to get shipping quote"), http.StatusInternalServerError)
+		return
 	}
 	totalPrice = money.Must(money.Sum(totalPrice, *shippingCost))
 	year := time.Now().Year()

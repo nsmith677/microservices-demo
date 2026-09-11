@@ -19,6 +19,13 @@ import (
 	"math"
 )
 
+const (
+	baseShippingRateUSD         = 8.99
+	freeShippingThresholdUnits  = 75
+	freeShippingThresholdNanos  = 0
+	freeShippingThresholdCurrency = "USD"
+)
+
 // Quote represents a currency value.
 type Quote struct {
 	Dollars uint32
@@ -32,10 +39,35 @@ func (q Quote) String() string {
 
 // CreateQuoteFromCount takes a number of items and returns a shipping quote.
 func CreateQuoteFromCount(count int) Quote {
+	return CreateQuote(count, 0, 0, "")
+}
+
+// CreateQuote returns a shipping quote based on item count and optional USD subtotal.
+func CreateQuote(count int, usdSubtotalUnits int64, usdSubtotalNanos int32, usdSubtotalCurrency string) Quote {
 	if count == 0 {
 		return CreateQuoteFromFloat(0)
 	}
-	return CreateQuoteFromFloat(8.99)
+	if qualifiesForFreeShipping(usdSubtotalUnits, usdSubtotalNanos, usdSubtotalCurrency) {
+		return CreateQuoteFromFloat(0)
+	}
+	return CreateQuoteFromFloat(baseShippingRateUSD)
+}
+
+func qualifiesForFreeShipping(units int64, nanos int32, currency string) bool {
+	if currency != freeShippingThresholdCurrency {
+		return false
+	}
+	return moneyGTE(units, nanos, freeShippingThresholdUnits, freeShippingThresholdNanos)
+}
+
+func moneyGTE(units int64, nanos int32, thresholdUnits int64, thresholdNanos int32) bool {
+	if units > thresholdUnits {
+		return true
+	}
+	if units < thresholdUnits {
+		return false
+	}
+	return nanos >= thresholdNanos
 }
 
 // CreateQuoteFromFloat takes a price represented as a float and creates a Price struct.

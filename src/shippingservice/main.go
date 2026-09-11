@@ -125,7 +125,16 @@ func (s *server) GetQuote(ctx context.Context, in *pb.GetQuoteRequest) (*pb.GetQ
 	for _, item := range in.Items {
 		count += int(item.Quantity)
 	}
-	quote := CreateQuoteFromCount(count)
+	subtotal := in.GetUsdItemSubtotal()
+	var subtotalUnits int64
+	var subtotalNanos int32
+	var subtotalCurrency string
+	if subtotal != nil {
+		subtotalUnits = subtotal.GetUnits()
+		subtotalNanos = subtotal.GetNanos()
+		subtotalCurrency = subtotal.GetCurrencyCode()
+	}
+	quote := CreateQuote(count, subtotalUnits, subtotalNanos, subtotalCurrency)
 
 	// 2. Generate a response.
 	return &pb.GetQuoteResponse{

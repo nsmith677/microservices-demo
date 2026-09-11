@@ -23,6 +23,23 @@ import (
 	pb "github.com/GoogleCloudPlatform/microservices-demo/src/shippingservice/genproto"
 )
 
+var testCartItems = []*pb.CartItem{
+	{ProductId: "23", Quantity: 1},
+	{ProductId: "46", Quantity: 3},
+}
+
+func assertQuoteUSD(t *testing.T, res *pb.GetQuoteResponse, wantUnits int64, wantNanos int32) {
+	t.Helper()
+	if res.CostUsd.GetUnits() != wantUnits || res.CostUsd.GetNanos() != wantNanos {
+		t.Errorf("quote = %d.%09d USD, want %d.%09d USD",
+			res.CostUsd.GetUnits(), res.CostUsd.GetNanos(), wantUnits, wantNanos)
+	}
+}
+
+func usdMoney(units int64, nanos int32) *pb.Money {
+	return &pb.Money{CurrencyCode: "USD", Units: units, Nanos: nanos}
+}
+
 // TestGetQuote is a basic check on the GetQuote RPC service.
 func TestGetQuote(t *testing.T) {
 	s := server{}
@@ -35,16 +52,8 @@ func TestGetQuote(t *testing.T) {
 			State:         "",
 			Country:       "England",
 		},
-		Items: []*pb.CartItem{
-			{
-				ProductId: "23",
-				Quantity:  1,
-			},
-			{
-				ProductId: "46",
-				Quantity:  3,
-			},
-		},
+		Items:           testCartItems,
+		UsdItemSubtotal: usdMoney(50, 0),
 	}
 
 	res, err := s.GetQuote(context.Background(), req)
@@ -53,6 +62,62 @@ func TestGetQuote(t *testing.T) {
 	}
 	if res.CostUsd.GetUnits() != 8 || res.CostUsd.GetNanos() != 990000000 {
 		t.Errorf("TestGetQuote: Quote value '%d.%d' does not match expected '8.990000000'", res.CostUsd.GetUnits(), res.CostUsd.GetNanos())
+	}
+}
+
+func TestGetQuoteFreeShippingAtThreshold(t *testing.T) {
+	s := server{}
+	req := &pb.GetQuoteRequest{
+		Items:           testCartItems,
+		UsdItemSubtotal: usdMoney(75, 0),
+	}
+	res, err := s.GetQuote(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetQuote failed: %v", err)
+	}
+	assertQuoteUSD(t, res, 0, 0)
+}
+
+func TestGetQuotePaidShippingBelowThreshold(t *testing.T) {
+	s := server{}
+	req := &pb.GetQuoteRequest{
+		Items:           testCartItems,
+		UsdItemSubtotal: usdMoney(74, 990000000),
+	}
+	res, err := s.GetQuote(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetQuote failed: %v", err)
+	}
+	assertQuoteUSD(t, res, 8, 990000000)
+}
+
+func TestGetQuoteIgnoresNonUsdSubtotal(t *testing.T) {
+	s := server{}
+	tests := []struct {
+		name     string
+		subtotal *pb.Money
+	}{
+		{
+			name:     "EUR subtotal that looks over 75",
+			subtotal: &pb.Money{CurrencyCode: "EUR", Units: 80, Nanos: 0},
+		},
+		{
+			name:     "JPY subtotal that looks over 75",
+			subtotal: &pb.Money{CurrencyCode: "JPY", Units: 5000, Nanos: 0},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &pb.GetQuoteRequest{
+				Items:           testCartItems,
+				UsdItemSubtotal: tc.subtotal,
+			}
+			res, err := s.GetQuote(context.Background(), req)
+			if err != nil {
+				t.Fatalf("GetQuote failed: %v", err)
+			}
+			assertQuoteUSD(t, res, 8, 990000000)
+		})
 	}
 }
 
@@ -172,6 +237,32 @@ func TestCreateQuoteFromCount(t *testing.T) {
 	nonZeroQuote := CreateQuoteFromCount(5)
 	if nonZeroQuote.Dollars == 0 && nonZeroQuote.Cents == 0 {
 		t.Error("CreateQuoteFromCount(5) returned zero, expected a non-zero quote")
+	}
+}
+
+func TestCreateQuoteFreeShippingThreshold(t *testing.T) {
+	tests := []struct {
+		name     string
+		units    int64
+		nanos    int32
+		currency string
+		wantZero bool
+	}{
+		{"USD at threshold", 75, 0, "USD", true},
+		{"USD above threshold", 80, 0, "USD", true},
+		{"USD below threshold", 74, 990000000, "USD", false},
+		{"EUR ignored", 80, 0, "EUR", false},
+		{"JPY ignored", 5000, 0, "JPY", false},
+		{"missing currency", 80, 0, "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			q := CreateQuote(1, tc.units, tc.nanos, tc.currency)
+			gotZero := q.Dollars == 0 && q.Cents == 0
+			if gotZero != tc.wantZero {
+				t.Errorf("CreateQuote() = %s, wantZero=%v", q, tc.wantZero)
+			}
+		})
 	}
 }
 

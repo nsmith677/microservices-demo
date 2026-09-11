@@ -84,11 +84,13 @@ func (fe *frontendServer) convertCurrency(ctx context.Context, money *pb.Money, 
 			ToCode: currency})
 }
 
-func (fe *frontendServer) getShippingQuote(ctx context.Context, items []*pb.CartItem, currency string) (*pb.Money, error) {
+func (fe *frontendServer) getShippingQuote(ctx context.Context, items []*pb.CartItem, usdSubtotal *pb.Money, currency string) (*pb.Money, error) {
 	quote, err := pb.NewShippingServiceClient(fe.shippingSvcConn).GetQuote(ctx,
 		&pb.GetQuoteRequest{
-			Address: nil,
-			Items:   items})
+			Address:         nil,
+			Items:           items,
+			UsdItemSubtotal: usdSubtotal,
+		})
 	if err != nil {
 		return nil, err
 	}
