@@ -17,7 +17,11 @@ package main
 import (
 	"fmt"
 	"math"
+
+	pb "github.com/GoogleCloudPlatform/microservices-demo/src/shippingservice/genproto"
 )
+
+const freeShippingThresholdUSDUnits int64 = 75
 
 // Quote represents a currency value.
 type Quote struct {
@@ -36,6 +40,35 @@ func CreateQuoteFromCount(count int) Quote {
 		return CreateQuoteFromFloat(0)
 	}
 	return CreateQuoteFromFloat(8.99)
+}
+
+// qualifiesForFreeShipping reports whether a catalog subtotal earns free shipping.
+// The threshold is $75.00 USD inclusive. Non-USD or missing amounts never qualify,
+// so a shopper's display currency cannot accidentally meet the threshold.
+func qualifiesForFreeShipping(subtotal *pb.Money) bool {
+	if subtotal == nil {
+		return false
+	}
+	if subtotal.GetCurrencyCode() != "USD" {
+		return false
+	}
+	units := subtotal.GetUnits()
+	nanos := subtotal.GetNanos()
+	if units > freeShippingThresholdUSDUnits {
+		return true
+	}
+	if units == freeShippingThresholdUSDUnits && nanos >= 0 {
+		return true
+	}
+	return false
+}
+
+func quoteUSD(q Quote) *pb.Money {
+	return &pb.Money{
+		CurrencyCode: "USD",
+		Units:        int64(q.Dollars),
+		Nanos:        int32(q.Cents * 10000000),
+	}
 }
 
 // CreateQuoteFromFloat takes a price represented as a float and creates a Price struct.

@@ -243,3 +243,54 @@ func TestSum(t *testing.T) {
 		})
 	}
 }
+
+func TestCatalogUSDSubtotalIgnoresDisplayCurrency(t *testing.T) {
+	usdPrice := mmc(50, 0, "USD")
+	got, err := CatalogUSDSubtotal([]*pb.Money{&usdPrice}, []uint32{1})
+	if err != nil {
+		t.Fatalf("CatalogUSDSubtotal: %v", err)
+	}
+	if got.GetCurrencyCode() != "USD" || got.GetUnits() != 50 {
+		t.Errorf("subtotal = %+v, want USD 50", got)
+	}
+
+	eurDisplay := mmc(80, 0, "EUR")
+	_, err = CatalogUSDSubtotal([]*pb.Money{&eurDisplay}, []uint32{1})
+	if err != ErrMismatchingCurrency {
+		t.Errorf("EUR display amount must not be treated as USD subtotal, err=%v", err)
+	}
+
+	jpyDisplay := mmc(5000, 0, "JPY")
+	_, err = CatalogUSDSubtotal([]*pb.Money{&jpyDisplay}, []uint32{1})
+	if err != ErrMismatchingCurrency {
+		t.Errorf("JPY display amount must not be treated as USD subtotal, err=%v", err)
+	}
+}
+
+func TestChargeTotalReflectsFreeShipping(t *testing.T) {
+	item := &pb.OrderItem{
+		Item: &pb.CartItem{ProductId: "watch", Quantity: 1},
+		Cost: &pb.Money{CurrencyCode: "USD", Units: 80},
+	}
+	free := pb.Money{CurrencyCode: "USD"}
+	got, err := ChargeTotal(free, []*pb.OrderItem{item})
+	if err != nil {
+		t.Fatalf("ChargeTotal: %v", err)
+	}
+	if got.GetUnits() != 80 || got.GetNanos() != 0 {
+		t.Errorf("free-shipping total = %d.%d, want 80.00 (not 88.99)", got.GetUnits(), got.GetNanos())
+	}
+
+	paidShip := pb.Money{CurrencyCode: "USD", Units: 8, Nanos: 990000000}
+	under := &pb.OrderItem{
+		Item: &pb.CartItem{ProductId: "mug", Quantity: 1},
+		Cost: &pb.Money{CurrencyCode: "USD", Units: 74, Nanos: 990000000},
+	}
+	got, err = ChargeTotal(paidShip, []*pb.OrderItem{under})
+	if err != nil {
+		t.Fatalf("ChargeTotal: %v", err)
+	}
+	if got.GetUnits() != 83 || got.GetNanos() != 980000000 {
+		t.Errorf("paid-shipping total = %d.%d, want 83.98", got.GetUnits(), got.GetNanos())
+	}
+}

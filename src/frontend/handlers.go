@@ -268,12 +268,6 @@ func (fe *frontendServer) viewCartHandler(w http.ResponseWriter, r *http.Request
 		log.WithField("error", err).Warn("failed to get product recommendations")
 	}
 
-	shippingCost, err := fe.getShippingQuote(r.Context(), cart, currentCurrency(r))
-	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to get shipping quote"), http.StatusInternalServerError)
-		return
-	}
-
 	type cartItemView struct {
 		Item     *pb.Product
 		Quantity int32
@@ -281,6 +275,8 @@ func (fe *frontendServer) viewCartHandler(w http.ResponseWriter, r *http.Request
 	}
 	items := make([]cartItemView, len(cart))
 	totalPrice := pb.Money{CurrencyCode: currentCurrency(r)}
+	usdPrices := make([]*pb.Money, len(cart))
+	quantities := make([]uint32, len(cart))
 	for i, item := range cart {
 		p, err := fe.getProduct(r.Context(), item.GetProductId())
 		if err != nil {
@@ -299,6 +295,19 @@ func (fe *frontendServer) viewCartHandler(w http.ResponseWriter, r *http.Request
 			Quantity: item.GetQuantity(),
 			Price:    &multPrice}
 		totalPrice = money.Must(money.Sum(totalPrice, multPrice))
+		usdPrices[i] = p.GetPriceUsd()
+		quantities[i] = uint32(item.GetQuantity())
+	}
+	usdSubtotal, err := money.CatalogUSDSubtotal(usdPrices, quantities)
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to compute USD cart subtotal"), http.StatusInternalServerError)
+		return
+	}
+
+	shippingCost, err := fe.getShippingQuote(r.Context(), cart, currentCurrency(r), &usdSubtotal)
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to get shipping quote"), http.StatusInternalServerError)
+		return
 	}
 	totalPrice = money.Must(money.Sum(totalPrice, *shippingCost))
 	year := time.Now().Year()
@@ -377,10 +386,10 @@ func (fe *frontendServer) placeOrderHandler(w http.ResponseWriter, r *http.Reque
 	order.GetOrder().GetItems()
 	recommendations, _ := fe.getRecommendations(r.Context(), sessionID(r), nil)
 
-	totalPaid := *order.GetOrder().GetShippingCost()
-	for _, v := range order.GetOrder().GetItems() {
-		multPrice := money.MultiplySlow(*v.GetCost(), uint32(v.GetItem().GetQuantity()))
-		totalPaid = money.Must(money.Sum(totalPaid, multPrice))
+	totalPaid, err := money.ChargeTotal(*order.GetOrder().GetShippingCost(), order.GetOrder().GetItems())
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to compute order total"), http.StatusInternalServerError)
+		return
 	}
 
 	currencies, err := fe.getCurrencies(r.Context())

@@ -56,6 +56,63 @@ func TestGetQuote(t *testing.T) {
 	}
 }
 
+func usd(units int64, nanos int32) *pb.Money {
+	return &pb.Money{CurrencyCode: "USD", Units: units, Nanos: nanos}
+}
+
+func quoteItems() []*pb.CartItem {
+	return []*pb.CartItem{
+		{ProductId: "23", Quantity: 1},
+		{ProductId: "46", Quantity: 3},
+	}
+}
+
+func TestGetQuoteFreeShippingThreshold(t *testing.T) {
+	s := server{}
+	tests := []struct {
+		name      string
+		subtotal  *pb.Money
+		wantUnits int64
+		wantNanos int32
+	}{
+		{"usd exactly 75", usd(75, 0), 0, 0},
+		{"usd 75 plus one nano", usd(75, 1), 0, 0},
+		{"usd above 75", usd(80, 0), 0, 0},
+		{"usd 74.99", usd(74, 990000000), 8, 990000000},
+		{"eur 80 must not qualify", &pb.Money{CurrencyCode: "EUR", Units: 80}, 8, 990000000},
+		{"jpy 10000 must not qualify", &pb.Money{CurrencyCode: "JPY", Units: 10000}, 8, 990000000},
+		{"nil subtotal", nil, 8, 990000000},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := s.GetQuote(context.Background(), &pb.GetQuoteRequest{
+				Address:     &pb.Address{StreetAddress: "1 Main", City: "London", Country: "England"},
+				Items:       quoteItems(),
+				SubtotalUsd: tc.subtotal,
+			})
+			if err != nil {
+				t.Fatalf("GetQuote: %v", err)
+			}
+			if res.CostUsd.GetUnits() != tc.wantUnits || res.CostUsd.GetNanos() != tc.wantNanos {
+				t.Errorf("quote = %d.%d, want %d.%d", res.CostUsd.GetUnits(), res.CostUsd.GetNanos(), tc.wantUnits, tc.wantNanos)
+			}
+			if res.CostUsd.GetCurrencyCode() != "USD" {
+				t.Errorf("currency = %q, want USD", res.CostUsd.GetCurrencyCode())
+			}
+		})
+	}
+}
+
+func TestQualifiesForFreeShippingRejectsWrongCurrency(t *testing.T) {
+	if qualifiesForFreeShipping(&pb.Money{CurrencyCode: "EUR", Units: 80}) {
+		t.Fatal("EUR 80 must not qualify; threshold is USD-only")
+	}
+	if !qualifiesForFreeShipping(usd(75, 0)) {
+		t.Fatal("USD 75 must qualify")
+	}
+}
+
 // TestGetQuoteEmptyCart verifies that an empty cart returns a zero quote.
 func TestGetQuoteEmptyCart(t *testing.T) {
 	s := server{}

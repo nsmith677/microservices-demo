@@ -130,3 +130,45 @@ func MultiplySlow(m pb.Money, n uint32) pb.Money {
 	}
 	return out
 }
+
+// CatalogUSDSubtotal sums catalog unit prices in USD * quantity.
+// Converted display amounts (EUR, JPY, ...) are rejected so a free-shipping
+// threshold cannot be evaluated in the shopper's selected currency.
+func CatalogUSDSubtotal(unitPrices []*pb.Money, quantities []uint32) (pb.Money, error) {
+	if len(unitPrices) != len(quantities) {
+		return pb.Money{}, errors.New("mismatched prices and quantities")
+	}
+	total := pb.Money{CurrencyCode: "USD"}
+	for i, price := range unitPrices {
+		if price == nil || price.GetCurrencyCode() != "USD" {
+			return pb.Money{}, ErrMismatchingCurrency
+		}
+		if quantities[i] == 0 {
+			continue
+		}
+		line := MultiplySlow(*price, quantities[i])
+		var err error
+		total, err = Sum(total, line)
+		if err != nil {
+			return pb.Money{}, err
+		}
+	}
+	return total, nil
+}
+
+// ChargeTotal is shipping plus localized line items (cart or order confirmation).
+func ChargeTotal(shipping pb.Money, orderItems []*pb.OrderItem) (pb.Money, error) {
+	total := shipping
+	for _, it := range orderItems {
+		if it == nil || it.GetCost() == nil || it.GetItem() == nil {
+			return pb.Money{}, ErrInvalidValue
+		}
+		line := MultiplySlow(*it.GetCost(), uint32(it.GetItem().GetQuantity()))
+		var err error
+		total, err = Sum(total, line)
+		if err != nil {
+			return pb.Money{}, err
+		}
+	}
+	return total, nil
+}
