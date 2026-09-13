@@ -87,7 +87,9 @@
 
                     <div class="row cart-summary-shipping-row">
                         <div class="col pl-md-0">Shipping</div>
-                        <div class="col pr-md-0 text-right">{{ renderMoney .shipping_cost }}</div>
+                        <div class="col pr-md-0 text-right">
+                            {{ if and (eq .shipping_cost.Units 0) (eq .shipping_cost.Nanos 0) }}Free{{ else }}{{ renderMoney .shipping_cost }}{{ end }}
+                        </div>
                     </div>
 
                     <div class="row cart-summary-total-row">

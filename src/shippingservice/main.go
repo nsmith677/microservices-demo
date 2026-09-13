@@ -125,15 +125,15 @@ func (s *server) GetQuote(ctx context.Context, in *pb.GetQuoteRequest) (*pb.GetQ
 	for _, item := range in.Items {
 		count += int(item.Quantity)
 	}
+
+	if qualifiesForFreeShipping(in.GetSubtotalUsd()) {
+		return &pb.GetQuoteResponse{CostUsd: quoteUSD(CreateQuoteFromFloat(0))}, nil
+	}
+
 	quote := CreateQuoteFromCount(count)
 
 	// 2. Generate a response.
-	return &pb.GetQuoteResponse{
-		CostUsd: &pb.Money{
-			CurrencyCode: "USD",
-			Units:        int64(quote.Dollars),
-			Nanos:        int32(quote.Cents * 10000000)},
-	}, nil
+	return &pb.GetQuoteResponse{CostUsd: quoteUSD(quote)}, nil
 
 }
 
